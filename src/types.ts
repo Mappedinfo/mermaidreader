@@ -36,3 +36,9 @@ export const EXPORT_DPI = 300;
 export const DEFAULT_PREVIEW_HEIGHT = 200;
 export const MIN_PREVIEW_HEIGHT = 100;
 export const MAX_PREVIEW_HEIGHT = 800;
+
+// Zoom constants
+export const DEFAULT_ZOOM = 100;
+export const MIN_ZOOM = 25;
+export const MAX_ZOOM = 400;
+export const ZOOM_STEP = 25;

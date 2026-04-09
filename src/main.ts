@@ -1,11 +1,14 @@
 import './style.css';
 import mermaid from 'mermaid';
-import html2canvas from 'html2canvas';
 import type { MermaidError, PreviewState } from './types';
 import {
   DEFAULT_PREVIEW_HEIGHT,
   MIN_PREVIEW_HEIGHT,
   MAX_PREVIEW_HEIGHT,
+  DEFAULT_ZOOM,
+  MIN_ZOOM,
+  MAX_ZOOM,
+  ZOOM_STEP,
 } from './types';
 
 // Mermaid initialization
@@ -28,6 +31,10 @@ const errorLocationEl = document.getElementById('errorLocation') as HTMLDivEleme
 const copyTextBtn = document.getElementById('copyText') as HTMLButtonElement;
 const copyImageBtn = document.getElementById('copyImage') as HTMLButtonElement;
 const toastEl = document.getElementById('toast') as HTMLDivElement;
+const zoomInBtn = document.getElementById('zoomIn') as HTMLButtonElement;
+const zoomOutBtn = document.getElementById('zoomOut') as HTMLButtonElement;
+const zoomResetBtn = document.getElementById('zoomReset') as HTMLButtonElement;
+const zoomLevelEl = document.getElementById('zoomLevel') as HTMLSpanElement;
 
 // Preview state
 const previewState: PreviewState = {
@@ -36,6 +43,9 @@ const previewState: PreviewState = {
   startY: 0,
   startHeight: 0,
 };
+
+// Zoom state
+let zoomLevel = DEFAULT_ZOOM;
 
 // Debounce timer
 let debounceTimer: ReturnType<typeof setTimeout>;
@@ -69,6 +79,7 @@ async function render(): Promise<void> {
     const id = `mermaid-${Date.now()}`;
     const { svg } = await mermaid.render(id, code);
     diagramEl.innerHTML = svg;
+    updateZoom();
   } catch (error) {
     diagramEl.innerHTML = '';
     diagramEl.classList.remove('diagram');
@@ -232,32 +243,63 @@ copyImageBtn.addEventListener('click', async () => {
   copyImageBtn.textContent = 'Processing...';
 
   try {
-    // Calculate scale for 300 DPI
-    // Standard screen is 96 DPI, so we multiply by 300/96 ≈ 3.125
-    // But html2canvas uses devicePixelRatio, so we calculate accordingly
-    const svgRect = svgElement.getBoundingClientRect();
     const targetDpi = 300;
     const screenDpi = 96;
+    const scale = targetDpi / screenDpi;
 
-    // Calculate scale factor to achieve target DPI
-    // We need to consider both the rendered size and target DPI
-    const scale = (targetDpi / screenDpi) * (window.devicePixelRatio || 1);
+    // Get SVG dimensions
+    const svgWidth = parseFloat(svgElement.getAttribute('width') || '0') ||
+      svgElement.viewBox.baseVal.width || 800;
+    const svgHeight = parseFloat(svgElement.getAttribute('height') || '0') ||
+      svgElement.viewBox.baseVal.height || 600;
 
-    // Add extra padding for the canvas
-    const padding = 40;
-    const canvasWidth = svgRect.width + padding * 2;
-    const canvasHeight = svgRect.height + padding * 2;
+    // Add padding
+    const padding = 20;
+    const canvasWidth = (svgWidth + padding * 2) * scale;
+    const canvasHeight = (svgHeight + padding * 2) * scale;
 
-    const canvas = await html2canvas(diagramEl, {
-      backgroundColor: '#ffffff',
-      scale: scale,
-      width: canvasWidth,
-      height: canvasHeight,
-      logging: false,
-      useCORS: true,
-      allowTaint: true,
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Failed to get canvas context');
+
+    // Fill background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Clone SVG and set explicit dimensions
+    const svgClone = svgElement.cloneNode(true) as SVGElement;
+    svgClone.setAttribute('width', String(svgWidth));
+    svgClone.setAttribute('height', String(svgHeight));
+
+    // Serialize SVG to string
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgClone);
+
+    // Create image from SVG
+    const img = new Image();
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => {
+        // Draw centered with padding
+        const x = padding * scale;
+        const y = padding * scale;
+        ctx.drawImage(img, x, y, svgWidth * scale, svgHeight * scale);
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load SVG'));
+      };
+      img.src = url;
     });
 
+    // Convert to blob and copy
     canvas.toBlob(async (blob) => {
       if (blob) {
         try {
@@ -267,12 +309,12 @@ copyImageBtn.addEventListener('click', async () => {
           showToast(`Image copied (${targetDpi} DPI)`, 'success');
         } catch {
           // Fallback: download the image
-          const url = URL.createObjectURL(blob);
+          const downloadUrl = URL.createObjectURL(blob);
           const a = document.createElement('a');
-          a.href = url;
+          a.href = downloadUrl;
           a.download = `diagram-${targetDpi}dpi.png`;
           a.click();
-          URL.revokeObjectURL(url);
+          URL.revokeObjectURL(downloadUrl);
           showToast(`Image downloaded (${targetDpi} DPI)`, 'success');
         }
       } else {
@@ -303,6 +345,43 @@ function showToast(message: string, type: 'success' | 'error' = 'success'): void
     toastEl.classList.remove('visible');
   }, 2500);
 }
+
+// Update zoom level display and apply transform
+function updateZoom(): void {
+  zoomLevelEl.textContent = `${zoomLevel}%`;
+  zoomInBtn.disabled = zoomLevel >= MAX_ZOOM;
+  zoomOutBtn.disabled = zoomLevel <= MIN_ZOOM;
+
+  // Apply CSS transform to diagram
+  const svg = diagramEl.querySelector('svg');
+  if (svg) {
+    svg.style.transform = `scale(${zoomLevel / 100})`;
+    svg.style.transformOrigin = 'center center';
+    svg.style.transition = 'transform 0.2s ease';
+  }
+}
+
+// Zoom in
+zoomInBtn.addEventListener('click', () => {
+  if (zoomLevel < MAX_ZOOM) {
+    zoomLevel = Math.min(MAX_ZOOM, zoomLevel + ZOOM_STEP);
+    updateZoom();
+  }
+});
+
+// Zoom out
+zoomOutBtn.addEventListener('click', () => {
+  if (zoomLevel > MIN_ZOOM) {
+    zoomLevel = Math.max(MIN_ZOOM, zoomLevel - ZOOM_STEP);
+    updateZoom();
+  }
+});
+
+// Reset zoom
+zoomResetBtn.addEventListener('click', () => {
+  zoomLevel = DEFAULT_ZOOM;
+  updateZoom();
+});
 
 // Initial render
 render();
