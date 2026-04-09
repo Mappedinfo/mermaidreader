@@ -1,0 +1,21 @@
+{
+  "name": "mermaid-parser",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "mermaid": "^11.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.5"
+  }
+}
