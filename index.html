@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mermaid Parser</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .input-section {
+      margin-bottom: 20px;
+    }
+
+    .textarea-wrapper {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    textarea {
+      flex: 1;
+      min-height: 150px;
+      padding: 12px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      resize: vertical;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #4a90d9;
+    }
+
+    .preview-section {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      min-height: 200px;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+
+    .preview-section .mermaid {
+      background: white;
+    }
+
+    .preview-section.error {
+      color: #d32f2f;
+      font-size: 14px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #4a90d9;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #3a7bc8;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+
+    .placeholder-text {
+      color: #999;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="input-section">
+      <div class="textarea-wrapper">
+        <textarea id="input" placeholder="Paste your Mermaid syntax here..."></textarea>
+        <button class="btn btn-primary" id="copyText">Copy Text</button>
+      </div>
+    </div>
+
+    <div class="preview-section" id="preview">
+      <div id="diagram" class="mermaid"></div>
+      <span class="placeholder-text" id="placeholder">Diagram preview will appear here</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" id="copyImage">Copy Image</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.14.0/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'loose',
+      theme: 'default'
+    });
+
+    const input = document.getElementById('input');
+    const preview = document.getElementById('preview');
+    const diagram = document.getElementById('diagram');
+    const placeholder = document.getElementById('placeholder');
+    const copyTextBtn = document.getElementById('copyText');
+    const copyImageBtn = document.getElementById('copyImage');
+
+    let debounceTimer;
+
+    async function render() {
+      const code = input.value.trim();
+
+      if (!code) {
+        diagram.innerHTML = '';
+        diagram.classList.remove('mermaid');
+        placeholder.style.display = 'block';
+        preview.classList.remove('error');
+        return;
+      }
+
+      placeholder.style.display = 'none';
+      diagram.classList.add('mermaid');
+
+      try {
+        const id = 'mermaid-' + Date.now();
+        const { svg } = await mermaid.render(id, code);
+        diagram.innerHTML = svg;
+        preview.classList.remove('error');
+      } catch (error) {
+        diagram.innerHTML = '';
+        diagram.classList.remove('mermaid');
+        preview.classList.add('error');
+        placeholder.style.display = 'block';
+        placeholder.textContent = 'Syntax error: ' + error.message;
+      }
+    }
+
+    input.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(render, 300);
+    });
+
+    copyTextBtn.addEventListener('click', async () => {
+      const text = input.value;
+      if (!text) return;
+
+      try {
+        await navigator.clipboard.writeText(text);
+        copyTextBtn.textContent = 'Copied!';
+        setTimeout(() => {
+          copyTextBtn.textContent = 'Copy Text';
+        }, 1500);
+      } catch (err) {
+        console.error('Failed to copy text:', err);
+      }
+    });
+
+    copyImageBtn.addEventListener('click', async () => {
+      const svgElement = diagram.querySelector('svg');
+      if (!svgElement) {
+        alert('No diagram to copy. Please render a diagram first.');
+        return;
+      }
+
+      copyImageBtn.disabled = true;
+      copyImageBtn.textContent = 'Processing...';
+
+      try {
+        const canvas = await html2canvas(diagram, {
+          backgroundColor: '#ffffff',
+          scale: 2
+        });
+
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              copyImageBtn.textContent = 'Copied!';
+            } catch (err) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'diagram.png';
+              a.click();
+              URL.revokeObjectURL(url);
+              copyImageBtn.textContent = 'Downloaded!';
+            }
+          }
+          setTimeout(() => {
+            copyImageBtn.textContent = 'Copy Image';
+            copyImageBtn.disabled = false;
+          }, 1500);
+        }, 'image/png');
+      } catch (err) {
+        console.error('Failed to copy image:', err);
+        copyImageBtn.textContent = 'Copy Image';
+        copyImageBtn.disabled = false;
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>
